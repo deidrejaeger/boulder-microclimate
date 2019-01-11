@@ -212,20 +212,6 @@ levelplot(month2014_sd,
 
 ```
 
-
-Thursday Jan 10 next steps
-
-- check the full year min temp for 2014
-
-- think about freezing value thresholds...
-- think about other calculations to be done with extremes/ largest differences (calc is smothering?) should I instead take the lowest min temp for a pixel for a month?
-
-- check if 2018 data is available
-
-- see if weather stations are given somewhere
-
-- apply to full span of years!
-
 ```{r coeff-var-function}
 # look at coefficient of variation
 # coefficient of variation (sd/calc)
@@ -288,6 +274,53 @@ levelplot(month2014_coeff.var,
 ```
 
 
+- think about freezing value thresholds...?
+- think about other calculations to be done with extremes/ largest differences (calc is smothering?) should I instead take the lowest min temp for a pixel for a month?
+```{r extreme-values}
+# calculate the absolute min temp for each pixel in a given month
+jan_min <- min(stack_merge[[1:31]])
+feb_min <- min(stack_merge[[32:59]])
+mar_min <- min(stack_merge[[60:90]])
+apr_min <- min(stack_merge[[91:120]])
+may_min <- min(stack_merge[[121:151]])
+jun_min <- min(stack_merge[[152:181]])
+jul_min <- min(stack_merge[[182:212]])
+aug_min <- min(stack_merge[[213:243]])
+sep_min <- min(stack_merge[[244:273]])
+oct_min <- min(stack_merge[[274:304]])
+nov_min <- min(stack_merge[[305:334]])
+dec_min <- min(stack_merge[[335:365]])
+
+
+# stack the monthly rasters
+month2014_abmin <- raster::stack(jan_min, feb_min, mar_min, apr_min, may_min, jun_min, jul_min, aug_min, sep_min, oct_min, nov_min, dec_min)
+
+plot(month2014_abmin)
+
+# convert to from C to F
+month2014_abmin = (month2014_abmin*9)/5 + 32
+
+# check the range
+summary(month2014_abmin) # min is -16.6, max is 53.3
+
+levelplot(month2014_abmin, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=-17:54, font=4),
+            axis.line=list(col='black'),
+            width=0.75
+          ),
+          main=list(label="Absolute monthly Min Temps (F) for Boulder, CO (2014, Daymet)", cex=.8),
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette(rev(c('dark red','white','dark blue'))),                   
+          at=seq(-17, 54, len=72),
+          names.attr= c("Jan, 2014", "Feb, 2014", "Mar, 2014", "Apr, 2014", "May, 2014", "Jun, 2014", "Jul, 2014", "Aug, 2014", "Sep, 2014", "Oct, 2014", "Nov, 2014", "Dec, 2014")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=1))
+
+
+
+```
 
 
 

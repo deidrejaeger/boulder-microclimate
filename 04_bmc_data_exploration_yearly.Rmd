@@ -1,0 +1,169 @@
+---
+title: "04_bmc_data_exploration_yearly"
+author: "Deidre Jaeger"
+date: "1/10/2019"
+output: html_document
+---
+TO dos
+
+- check if 2018 data is available
+
+- see if weather stations are given somewhere
+
+- apply to full span of years!
+
+- get a DEM for boulder area to compare (or underlay on the temp map- see NEON tutorial)
+
+Questions:
+Is there a spatial pattern to temp variability? 
+Is there a detectable urban heat island effect? 
+How does this compare to the overall climate change signal? (using landsat?)
+
+Analysis plan
+1) define an area in the city and outside (or a transect), compare the mean yearly temps for a section inside the city to a section outside the city see if significantly different for a 30 year comparison- what is the difference?
+
+Create a study transcect (or 3?) and crop values, convert to a tidy dateframe so can look at profiles and compare quantitatively
+
+Carol suggests using NLCD or tree cover data to show the difference in vegetation... or could also look at NDVI? 
+
+```{r install-packages}
+library(ncdf4)
+library(raster)
+library(proj4)
+library(rgdal) # needed to read in boulder shapefile
+library(daymetr)
+library(ggplot2)
+library(broom)
+library(tidyverse)
+library(ggspatial)
+library(rasterVis) # for levelplot
+```
+
+```{r load-boulder-city-outline}
+# load boulder shapefile
+boulder_outline <- readOGR("data/BoulderCityLimits/BoulderCityLimits.shp")
+# set path to data on external harddrive
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet"
+# load a raster with monthly aggregations
+tmin.mon.s <- raster::stack(paste0(data_path2,"/tmin_monavg_2012_ncss.nc"))
+# reproject coordinate reference system
+tmin.mon.s_repr <- projectRaster(tmin.mon.s, crs="+proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs")
+# Reproject the city polygons onto the raster brick's coord ref system
+boulder_outline_reproj3 <- spTransform(boulder_outline,
+                                crs(proj4string(tmin.mon.s_repr)))
+```
+
+
+
+```{r download-2014-daily-data}
+
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+roi <- c(40.09, -105.32, 39.95, -105.17)
+# Define the variables for data extraction
+start_year <- 2014
+end_year <- 2014
+climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet" # i think the file is too large for my computer, switch to an external harddrive for raw data
+
+# use daymet API to download the data in the region of interest
+ download_daymet_tiles(location = roi,
+                      start = start_year,
+                      end = end_year,
+                      tile = NULL,
+                      param = climate_var,
+                      path = data_path2,
+                      silent = F)
+ 
+tmin14.s.n <- raster::stack(paste0(data_path2,"/tmin_2014_11738.nc"))
+tmin14.s.s <- raster::stack(paste0(data_path2,"/tmin_2014_11558.nc"))
+
+plot(tmin14.s.n)
+plot(tmin14.s.s)
+print(tmin14.s.n)
+print(tmin14.s.s)
+
+# try plotting one tile
+plot(tmin14.s.n[[1]])
+plot(boulder_outline_reproj3, add = TRUE)
+plot(tmin14.s.s[[1]])
+plot(boulder_outline_reproj3, add = TRUE)
+
+
+# set extents, could also use extent(xmin, xmax, ymin, ymax)
+l.extent.n <- c(-439000, -419000, -279000, -240000)
+# l.extent.s <- c(-439000, -419000,-275500,-257500)
+l.extent.s2 <- c( -439000, -419000,-260000, -241673)
+
+# trim northern extent of raster around city buffer
+tmin14.s.n.c <- crop(tmin14.s.n, l.extent.n)
+extent(tmin14.s.n.c)
+
+# trim southern extent of raster around city buffer
+tmin14.s.s.c <- crop(tmin14.s.s, l.extent.s2)
+extent(tmin14.s.s.c)
+
+
+# merge raster stack for 2014 daily min temp values
+stack_merge <- merge(tmin14.s.n.c, tmin14.s.s.c)
+
+```
+
+```{r monthly-data-2014}
+# https://www.rdocumentation.org/packages/raster/versions/2.8-4/topics/calc
+
+# use overlay() for single raster math, use calc() for raster stacks 
+# If x is a RasterStack or RasterBrick, fun should operate on a vector of values (one vector for each cell). calc returns a RasterLayer if fun returns a single value (e.g. sum) and it returns a RasterBrick if fun returns more than one number, e.g., fun=quantile
+
+# calculate the mean min temp for each pixel in a given month
+jan_mean <- mean(stack_merge[[1:31]])
+feb_mean <- mean(stack_merge[[32:59]])
+mar_mean <- mean(stack_merge[[60:90]])
+apr_mean <- mean(stack_merge[[91:120]])
+may_mean <- mean(stack_merge[[121:151]])
+jun_mean <- mean(stack_merge[[152:181]])
+jul_mean <- mean(stack_merge[[182:212]])
+aug_mean <- mean(stack_merge[[213:243]])
+sep_mean <- mean(stack_merge[[244:273]])
+oct_mean <- mean(stack_merge[[274:304]])
+nov_mean <- mean(stack_merge[[305:334]])
+dec_mean <- mean(stack_merge[[335:365]])
+
+# stack the monthly rasters
+month2014_ave <- raster::stack(jan_mean, feb_mean, mar_mean, apr_mean, may_mean, jun_mean, jul_mean, aug_mean, sep_mean, oct_mean, nov_mean, dec_mean)
+
+plot(month2014_ave)
+
+# convert to from C to F
+month2014_ave = (month2014_ave*9)/5 + 32
+
+
+```
+
+```{r yearly-2014}
+
+# calc average min temp for 2014
+tmin_2014 <- calc(month2014_ave, mean)
+
+# summary
+summary(tmin_2014)
+
+
+levelplot(tmin_2014, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=30:39, font=4),
+            axis.line=list(col='black'),
+            width=0.75
+          ),
+          main=list(label="Daymet Derived mean Min Temps (F) for Boulder, CO (2014)", cex=.8),
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette(rev(c('dark red','white','dark blue'))),                   
+          at=seq(30, 39, len=20)) +
+          # names.attr= c("Jan, 2014", "Feb, 2014", "Mar, 2014", "Apr, 2014", "May, 2014", "Jun, 2014", "Jul, 2014", "Aug, 2014", "Sep, 2014", "Oct, 2014", "Nov, 2014", "Dec, 2014")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=2))
+
+
+```
+
+
