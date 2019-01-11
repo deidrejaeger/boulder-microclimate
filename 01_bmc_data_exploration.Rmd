@@ -1,0 +1,192 @@
+---
+title: "01_bmc_data_exploration"
+author: "Deidre Jaeger"
+date: "11/6/2018"
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, echo=FALSE)
+
+```
+
+
+```{r load-libaries}
+library(rgdal) # needed to read in boulder shapefile
+# remove.packages("rgdal")
+# install.packages("rgdal")
+library(daymetr)  # need for API data 
+library(raster) # needed for cdf conversion
+library(devtools)
+# remove.packages("raster")
+# install.packages("raster")
+#install.packages("rgeos")
+library(rgeos)
+#install.packages("rgdal")
+library(ggplot2)
+#remove.packages("tidyverse")
+#install.packages("tidyverse")
+library(tidyverse)
+# devtools::install_github("paleolimbot/ggspatial")
+# remove.packages(ggspatial)
+#library(ggspatial)
+library(broom) # for tidy function
+library(sp)
+library(ggspatial)
+
+# turn off factors
+options(stringsAsFactors = FALSE)
+```
+
+```{r-load-boulder-city-outline}
+boulder_outline <- rgdal::readOGR("data/BoulderCityLimits/BoulderCityLimits.shp")
+boulder_outline2 <- raster::shapefile("data/BoulderCityLimits/BoulderCityLimits.shp")
+plot(boulder_outline)
+extent(boulder_outline)
+crs(boulder_outline)
+```
+
+
+```{r load-browser-downloaded-data}
+
+# Convert dweb downloaded tmax/tmin subsets to a stack
+tile_tmin16_st <- raster::stack("data/daymet/V3/CF_tarred/tars_2016/11738_2016/tmin.nc")
+tile_tmax16_st <- raster::stack("data/daymet/V3/CF_tarred/tars_2016/11738_2016/tmax.nc")
+tile_tmin17_st <- raster::stack("data/daymet/V3/CF_tarred/tars_2017/11738_2017/tmin.nc")
+tile_tmax17_st <- raster::stack("data/daymet/V3/CF_tarred/tars_2017/11738_2017/tmax.nc")
+
+# Convert to a brick
+tile_tmin16_br <- raster::brick(tile_tmin16_st)
+tile_tmax16_br <- raster::brick(tile_tmax16_st)
+tile_tmin17_br <- raster::brick(tile_tmin17_st)
+tile_tmax17_br <- raster::brick(tile_tmax17_st)
+
+```
+
+```{r reproject-boulder_outline}
+
+# Reproject the city polygons onto the raster brick's coord ref system
+boulder_outline_reproj <- spTransform(boulder_outline,
+                                crs(tile_tmin17_br))
+
+```
+
+```{r}
+
+# Plot the tile on a given day with the extent of the Boulder city overlaying on the plot
+graphics::plot(tile_tmin17_br[[32]])
+raster::plot(tile_tmin17_br[[32]])
+plot(boulder_outline_reproj, add = T)
+
+plot(tile_tmin17_br[[305]], ext=extent(boulder_outline_reproj), 
+                                     main = "Daymet maximum temperature (C) in Boulder, CO \n November 1, 2016")
+plot(boulder_outline_reproj, add= T)
+plot(boulder_outline_reproj)
+
+plot(tile_tmin17_br[[32]], ext=extent(boulder_outline_reproj), 
+                                     main = "Daymet minimum temperature (C) in Boulder, CO \n February 1, 2017")
+plot(boulder_outline_reproj, add= T)
+
+
+
+```
+
+```{r try-ggplot}
+# trim extent of raster
+tile_tmin16_br_crop <- crop(tile_tmin17_br, boulder_outline_reproj)
+
+
+graphics::plot(tile_tmin16_br_crop)
+raster::plot(tile_tmin16_br_crop)
+
+ggplot() +
+  layer_spatial(tile_tmin16_br_crop, aes(alpha = tile_tmin16_br_crop@data@values))
+
+ggplot() +
+  layer_spatial(tile_tmin16_br_crop, mapping = aes(alpha = ))
+
+ggplot() + 
+  geom_raster(data = tile_tmin16_br_crop, aes(x=x, y=y, fill=values)) 
+
+ggplot() + 
+  geom_raster(data = tile_tmin16_br_crop)
+
+
+ggplot() +
+  layer_spatial(tile_tmin17_br[[32]])
+
+ggplot() +
+    layer_spatial(boulder_outline) 
+
+ggplot() +
+  layer_spatial(tile_tmin17_br[[32]]) +
+  layer_spatial(boulder_outline) 
+
+ggplot() +
+  layer_spatial(boulder_outline) +
+  layer_spatial(tile_tmin17_br[[32]]) 
+
+```
+
+
+```{r}
+# check on installed packages
+installed.packages()
+```
+
+
+```{r try-ggspatial-plotting}
+# convert raster data to datafram to plot with ggplot
+
+crop_df <- as.data.frame(tile_tmin16_br_crop, xy = TRUE)
+
+full_df <- as.data.frame(tile_tmin17_br, xy = TRUE)
+
+# create histogram of the temp values for the year
+ggplot() +
+  geom_histogram(data = full_df, mapping = aes(x = X2017.01.01))
+  
+# test gathering into tidy data
+test <- full_df[,c(1:4, 93:94, 184:185, 276:277)]
+
+test %>% 
+  gather("X2017.01.01", "X2017.01.02", "X2017.04.01", "X2017.04.02","X2017.07.01", "X2017.07.02", "X2017.10.01", "X2017.10.02", key = "day", value = "minTempC") %>% 
+  ggplot() +
+    geom_histogram(mapping = aes(x=minTempC,y=stat(density)),bins=75) +
+    facet_wrap(facets = ~ day,scales="free")
+
+
+# test gathering into tidy data
+test_jan_jul <- full_df[,c(1:3, 207)]
+
+test_jan_jul %>% 
+  gather("X2017.01.01", "X2017.07.24", key = "day", value = "minTempC") %>% 
+  ggplot() +
+    geom_histogram(mapping = aes(x=minTempC,y=stat(density)),bins=75) +
+    facet_wrap(facets = ~ day,scales="free")
+
+
+test_jan_jul %>% 
+ gather("X2017.01.01", key = "day", value = "minTempC") %>% 
+  ggplot() +
+    geom_histogram(mapping = aes(x=minTempC,y=stat(density)),bins=75) +
+  geom_vline(xintercept = 3.2, color = "blue") +
+  geom_vline(xintercept = 38.5, color = "red") +
+  ggtitle("Jan 1 temp C for netCDF downloads, [Daymet online shows min temp in blue, max in red]")
+
+test_jan_jul %>% 
+ gather( "X2017.07.24", key = "day", value = "minTempC") %>% 
+  ggplot() +
+    geom_histogram(mapping = aes(x=minTempC,y=stat(density)),bins=75) +
+  geom_vline(xintercept = 38.3, color = "blue") +
+  geom_vline(xintercept = 68.9, color = "red") +
+  ggtitle("July 24 temp C for netCDF downloads, [Daymet online shows min temp in blue, max in red]")
+    
+  
+
+unique(full_df$X2017.01.01)
+
+unique(full_df$X2017.08.21)
+
+```
+

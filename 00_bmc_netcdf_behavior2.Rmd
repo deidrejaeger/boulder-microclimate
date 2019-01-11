@@ -1,0 +1,277 @@
+---
+title: "001_netcdf_data_"
+author: "Deidre Jaeger"
+date: "1/7/2019"
+output: html_document
+---
+
+```{r install-packages}
+library(ncdf4)
+library(RColorBrewer)
+library(lattice)
+library(raster)
+library(rasterVis)
+library(proj4)
+#install.packages("proj4")
+library(gridExtra)
+library(rgeos)
+library(rgdal) # needed to read in boulder shapefile
+library(daymetr)
+```
+
+```{r open-netcdf-tmin}
+dir <- "/Users/deidrejaeger/Documents/Career/CU-Boulder/Research/BoulderMicroclimate/boulder-microclimate-analysis/data/daymet/V3/CF_tarred/tars_2016/"
+year <- "11738_2016/"
+ncname <- "tmin"
+ncfname <- paste(dir, year, ncname, ".nc", sep="")
+ncin <- nc_open(ncfname, write=F)
+print(ncin)
+```
+# there are missing values that are coded as -9999, we need to tell R to read those as NA
+
+```{r get x-y-variables}
+x <- ncvar_get(ncin, "x")
+y <- ncvar_get(ncin,"y")
+yearday <- ncvar_get(ncin,"yearday")
+nc_close(ncin)
+
+```
+
+```{r function-to-retrieve-variables}
+getNCDFClimate <- function(var, year){ # Two arguments define the climate variable and year of the netCDF
+ncfname <- paste(dir, year, ncname, ".nc", sep="")
+ncin <- nc_open(ncfname, write=T)
+var.array <- ncvar_get(ncin,var) # get the climate variable values
+nc_close(ncin)
+var.vec.long <- as.vector(var.array) # convert from array to vector
+return(var.vec.long)
+}
+
+```
+
+```{r get-tmin-vals}
+vec.tmin <- getNCDFClimate("tmin", "11738_2016/")
+```
+
+```{r create-matrix}
+ncells <- dim(x)*dim(y)
+nyearday <- dim(yearday)
+tmin.mat <- matrix(vec.tmin, nrow=ncells, ncol=nyearday, byrow=F)
+
+```
+
+```{r plotting}
+grid <- expand.grid(xlon=x, ylat=y)
+xyz.tmin <- cbind(grid, tmin.mat[,92])
+head(xyz.tmin)
+```
+Looking at the xyz.tmin values, it seems they are ranging between -10 to -1.5 degrees C, or 3 to 34 degrees F
+
+```{r construct-proj-and-raster}
+pj <- "+proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs"
+rast.tmin <- rasterFromXYZ(xyz.tmin, crs=pj)
+
+# plot
+cuttmp <- c(-30,-20,-10,-5,-2,0,2,5,10,20,30) # define break points for color scale
+colkey <- list(at=cuttmp, labels=list(at=cuttmp)) # colorkey helps put legend labels at correct break points
+p1 <- levelplot(rast.tmin, margin=FALSE, colorkey=colkey, at=cuttmp, cuts=12, col.regions=rev(brewer.pal(11,"RdBu")), main=list(label="Min Temperature (April 1, 1980)", cex=.8), scales=list(draw=FALSE))
+
+grid.arrange(p1, ncol=1)
+```
+
+```{r load-boulder-city-outline}
+boulder_outline <- readOGR("data/BoulderCityLimits/BoulderCityLimits.shp")
+plot(boulder_outline)
+extent(boulder_outline)
+crs(boulder_outline)
+```
+
+```{r reproject-raster-to-feet}
+rast.tmin_reproj <- projectRaster(rast.tmin, crs="+proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=us-ft +no_defs")
+crs(rast.tmin_reproj)
+
+
+# Reproject the city polygons onto the raster brick's coord ref system
+boulder_outline_reproj <- spTransform(boulder_outline,
+                                crs(rast.tmin_reproj))
+```
+
+
+```{r clip-raster-to-boulder}
+# trim extent of raster
+tmin.rast.crop <- crop(rast.tmin_reproj, boulder_outline_reproj)
+plot(tmin.rast.crop)
+plot(boulder_outline_reproj, add = TRUE)
+
+```
+Ok- finally back to the same point I was at before the debackle of downloading ggspatial
+
+
+Still have the odd values problem
+
+```{r 2016-data}
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+roi <- c(40.09, -105.32, 39.95, -105.17)
+# Define the variables for data extraction
+start_year <- 2016
+end_year <- 2016
+climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+data_path <- "data/daymet/boulder-roi-40.11-105.34"
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet" # i think the file is too large for my computer, switch to an external harddrive for raw data
+
+# use daymet API to download the data in the region of interest
+download_daymet_tiles(location = roi,
+                      tiles = NULL,
+                      start = start_year,
+                      end = end_year,
+                      param = climate_var,
+                      path = data_path2, 
+                      silent = F)
+
+tile1 <- "/tmin_2016_11558"
+tmin.s <- raster::stack(paste0(data_path2,tile1,".nc"))
+
+plot(tmin.s)
+
+tmin_s <- raster::stack(tmin_r)
+raster::plot(tmin_s)
+tmin.b <- raster::brick(tmin_s)
+extent(tmin.b)
+crs(tmin.b)
+plot(tmin.b)
+
+tmin.b@data
+
+
+tmin_r$daily.minimum.temperature
+```
+
+```{r 2012-monthly-data}
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+roi <- c(40.097, -105.304, 40.002, -105.175)
+# Define the variables for data extraction
+start_year <- 2012
+end_year <- 2012
+climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+data_path <- "data/daymet/boulder-roi-40.097-105.304"
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet" # i think the file is too large for my computer, switch to an external harddrive for raw data
+
+# use daymet API to download the data in the region of interest
+download_daymet_ncss(location = roi,
+                      start = start_year,
+                      end = end_year,
+                      frequency = "monthly",
+                      param = climate_var,
+                      path = data_path2, 
+                      silent = F)
+tmin.mon.s <- raster::stack(paste0(data_path2,"/tmin_monavg_2012_ncss.nc"))
+
+print(tmin.mon.s)
+plot(tmin.mon.s)
+plot(tmin.mon.s[[2]])
+
+crs(tmin.mon.s)
+extent(tmin.mon.s)
+
+# Reproject the city polygons onto the raster brick's coord ref system
+boulder_outline_reproj2 <- spTransform(boulder_outline,
+                                crs(tmin.mon.s))
+crs(boulder_outline_reproj2)
+extent(boulder_outline_reproj2)
+plot(boulder_outline_reproj2)
+plot(tmin.mon.s[[2]], add = T)
+
+# try reprojecting
+tmin.mon.s_repr <- projectRaster(tmin.mon.s, crs="+proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs")
+
+plot(tmin.mon.s_repr)
+
+# Reproject the city polygons onto the raster brick's coord ref system
+boulder_outline_reproj3 <- spTransform(boulder_outline,
+                                crs(proj4string(tmin.mon.s_repr)))
+extent(tmin.mon.s_repr)
+extent(boulder_outline_reproj3)
+
+plot(boulder_outline_reproj3)
+plot(tmin.mon.s_repr[[2]], add = T)
+
+plot(tmin.mon.s_repr[[2]])
+plot(boulder_outline_reproj3, add = T)
+
+```
+
+
+```{r 2013-daily}
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+roi <- c(40.09, -105.32, 39.95, -105.17)
+# Define the variables for data extraction
+start_year <- 2013
+end_year <- 2013
+climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet" # i think the file is too large for my computer, switch to an external harddrive for raw data
+
+# use daymet API to download the data in the region of interest
+download_daymet_tiles(location = roi,
+                      start = start_year,
+                      end = end_year,
+                      tile = NULL,
+                      param = climate_var,
+                      path = data_path2, 
+                      silent = F)
+tmin2.s <- raster::stack(paste0(data_path2,"/tmin_2012_11738.nc"))
+plot(tmin2.s)
+
+crs(tmin2.s)
+
+# Reproject the city polygons onto the raster brick's coord ref system
+boulder_outline_reproj4 <- spTransform(boulder_outline,
+                                crs(proj4string(tmin2.s)))
+crs(boulder_outline_reproj4)
+extent(boulder_outline_reproj4)
+extent(tmin2.s)
+
+
+# try reprojecting
+tmin.mon.s_repr <- projectRaster(tmin.mon.s, crs="+proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs")
+
+plot(tmin.mon.s_repr)
+
+# Reproject the city polygons onto the raster brick's coord ref system
+boulder_outline_reproj3 <- spTransform(boulder_outline,
+                                crs(proj4string(tmin.mon.s_repr)))
+
+
+plot(tmin2.s[[2]])
+plot(boulder_outline_reproj3, add = TRUE)
+
+
+
+# trim extent of raster
+tmin2.s.crop <- crop(tmin2.s, boulder_outline_reproj3)
+
+plot(tmin2.s.crop[[2]])
+plot(boulder_outline_reproj3, add = T)
+
+plot(tmin2.s.crop[[100]])
+plot(boulder_outline_reproj3, add = T)
+
+crs(boulder_outline_reproj3)
+extent(boulder_outline_reproj3)
+
+```
+
+crs(boulder_outline_reproj3)
+
+CRS arguments:
+ +proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=m
++no_defs 
+
+extent(boulder_outline_reproj3)
+> extent(boulder_outline_reproj3)
+class       : Extent 
+xmin        : -431996.4 
+xmax        : -421564.2 
+ymin        : -255924.2 
+ymax        : -241673.5 
+
+

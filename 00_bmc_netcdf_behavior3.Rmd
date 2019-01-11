@@ -1,0 +1,679 @@
+---
+title: "002_bmc_netcdf_behavior"
+author: "Deidre Jaeger"
+date: "1/7/2019"
+output: html_document
+---
+
+?how many weather stations are in boulder and where are they? 
+
+```{r install-packages}
+library(ncdf4)
+library(raster)
+library(proj4)
+library(rgdal) # needed to read in boulder shapefile
+library(daymetr)
+library(ggplot2)
+library(broom)
+library(tidyverse)
+library(ggspatial)
+library(rasterVis) # for levelplot
+```
+
+```{r load-boulder-city-outline}
+boulder_outline <- readOGR("data/BoulderCityLimits/BoulderCityLimits.shp")
+plot(boulder_outline)
+extent(boulder_outline)
+crs(boulder_outline)
+```
+
+```{r 2012-monthly-data}
+# # create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+# roi <- c(40.097, -105.304, 40.002, -105.175)
+# # Define the variables for data extraction
+# start_year <- 2012
+# end_year <- 2012
+# climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+# data_path <- "data/daymet/boulder-roi-40.097-105.304"
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet" # i think the file is too large for my computer, switch to an external harddrive for raw data
+# 
+# # use daymet API to download the data in the region of interest
+# download_daymet_ncss(location = roi,
+#                       start = start_year,
+#                       end = end_year,
+#                       frequency = "monthly",
+#                       param = climate_var,
+#                       path = data_path2, 
+#                       silent = F)
+tmin.mon.s <- raster::stack(paste0(data_path2,"/tmin_monavg_2012_ncss.nc"))
+
+crs(tmin.mon.s)
+
+# > crs(tmin.mon.s)
+# CRS arguments:
+#  +proj=lcc +lon_0=-100 +lat_0=42.5 +x_0=0 +y_0=0 +lat_1=25 +a=60 +rf=6378137 +lat_2=45 
+
+# try reprojecting to a meters crs
+tmin.mon.s_repr <- projectRaster(tmin.mon.s, crs="+proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs")
+
+# Reproject the city polygons onto the raster brick's coord ref system
+boulder_outline_reproj3 <- spTransform(boulder_outline,
+                                crs(proj4string(tmin.mon.s_repr)))
+
+```
+It's convoluted, but the overlay seems to work by creating the city outline using this round a bout way to get the extent and crs below.
+
+crs(boulder_outline_reproj3)
+
+CRS arguments:
+ +proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=m
++no_defs 
+
+extent(boulder_outline_reproj3)
+> extent(boulder_outline_reproj3)
+class       : Extent 
+xmin        : -431996.4 
+xmax        : -421564.2 
+ymin        : -255924.2 
+ymax        : -241673.5 
+
+
+```{r 2013-daily}
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+# roi <- c(40.09, -105.32, 39.95, -105.17)
+# # Define the variables for data extraction
+# start_year <- 2013
+# end_year <- 2013
+# climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet" # i think the file is too large for my computer, switch to an external harddrive for raw data
+# 
+# # use daymet API to download the data in the region of interest
+# download_daymet_tiles(location = roi,
+#                       start = start_year,
+#                       end = end_year,
+#                       tile = NULL,
+#                       param = climate_var,
+#                       path = data_path2, 
+#                       silent = F)
+tmin2.s <- raster::stack(paste0(data_path2,"/tmin_2012_11738.nc"))
+plot(tmin2.s)
+
+print(tmin2.s)
+
+crs(tmin2.s)
+# > crs(tmin2.s)
+# CRS arguments:
+#  +proj=lcc +lon_0=-100 +lat_0=42.5 +x_0=0 +y_0=0 +lat_1=25 +ellps=WGS84 +lat_2=45 
+
+# try plotting on tile
+plot(tmin2.s[[2]])
+plot(boulder_outline_reproj3, add = TRUE)
+
+# trim extent of raster to city
+tmin2.s.crop <- crop(tmin2.s, boulder_outline_reproj3)
+
+# check plot- looks good
+plot(tmin2.s.crop[[2]])
+plot(boulder_outline_reproj3, add = T)
+
+plot(tmin2.s.crop[[213]])
+plot(boulder_outline_reproj3, add = T)
+ 
+```
+
+Temperature values in C seem reasonable
+
+```{r create-larger-extent}
+
+l.extent <- c(-443000, -410000, -270000, -230000)
+
+
+
+# trim extent of raster to city
+tmin2.s.crop2 <- crop(tmin2.s, l.extent)
+
+
+plot(tmin2.s.crop2[[2]])
+plot(boulder_outline_reproj3, add = T)
+
+
+tidy(tmin2.s.crop2[[2]])
+
+
+jan2.df <- as_tibble(as.data.frame(tmin2.s.crop2[[2]]))
+tmin2.s.crop2
+
+tmin2.s.crop2.b <- raster::brick(tmin2.s.crop2)
+
+ggplot() + 
+  ggspatial::annotation_spraster(tmin2.s.crop2[[2]])
+
+ggplot(tmin2.s.crop2.b[[2]]) +  
+  geom_tile(aes(fill=factor(value),alpha=0.8))
+  geom_polygon(data=boulder_outline_reproj3, aes(x=long, y=lat, group=group), 
+               fill=NA,color="grey50", size=1)+
+  coord_equal()
+  
+  ggplot(tmin2.s.crop2.b[[2]]) +  
+  geom_tile(aes(fill=factor(value),alpha=0.8))
+  geom_polygon(data=boulder_outline_reproj3, aes(x=long, y=lat, group=group), 
+               fill=NA,color="grey50", size=1)+
+  coord_equal()
+
+
+
+```
+
+
+
+Exploration plan : Start with tmin 2013
+
+Define a study radius around the city
+convert to F
+
+1) maps of first 9 days of Jan, Apr, Jul, Oct (DONE)
+
+2) mean min temp maps for each month for a cell 
+
+3) calculate the coefficient of variation (sd/mean * 100) for each month and year for a cell
+
+4) Look at yearly averages of tmin for a cell from 1980 to 2017 (tmin and tmax)
+
+https://stackoverflow.com/questions/33227182/how-to-set-use-ggplot2-to-map-a-raster
+s <- stack(r, r*0.8, r*0.6, r*0.4)
+
+https://www.earthdatascience.org/courses/earth-analytics/multispectral-remote-sensing-modis/normalized-burn-index-dNBR/
+landsat_prefire_nbr <- overlay(all_landsat_bands_173_br[[7]], all_landsat_bands_173_br[[5]],
+        fun = normalized_diff)
+        
+extract pixels from a polygon areas using extract()
+https://www.earthdatascience.org/courses/earth-analytics/multispectral-remote-sensing-modis/calculate-dNBR-R-Landsat/
+
+Questions:
+Is there a spatial pattern to temp variability? 
+Is there a detectable urban heat island effect? 
+How does this compare to the overall climate change signal? (using landsat?)
+
+Analysis plan
+1) define an area in the city and outside, compare the mean yearly temps for a section inside the city to a section outside the city see if significantly different for a 30 year comparison- what is the difference?
+
+```{r add-southern-tile-2013}
+
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+roi <- c(40.09, -105.32, 39.95, -105.17)
+# Define the variables for data extraction
+start_year <- 2013
+end_year <- 2013
+climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet" # i think the file is too large for my computer, switch to an external harddrive for raw data
+
+# # use daymet API to download the data in the region of interest
+#  download_daymet_tiles(location = roi,
+#                       start = start_year,
+#                       end = end_year,
+#                       tile = NULL,
+#                       param = climate_var,
+#                       path = data_path2,
+#                       silent = F)
+ 
+tmin13.s.n <- raster::stack(paste0(data_path2,"/tmin_2013_11738.nc"))
+tmin13.s.s <- raster::stack(paste0(data_path2,"/tmin_2013_11558.nc"))
+
+plot(tmin13.s.n)
+plot(tmin13.s.s)
+print(tmin13.s.n)
+print(tmin13.s.s)
+
+# try plotting on tile
+plot(tmin13.s.n[[1]])
+plot(boulder_outline_reproj3, add = TRUE)
+plot(tmin13.s.s[[1]])
+plot(boulder_outline_reproj3, add = TRUE)
+
+
+# set extents
+l.extent.n <- c(-439000, -419000, -279000, -240000)
+
+# trim extent of raster around city buffer
+tmin13.s.n.c <- crop(tmin13.s.n, l.extent.n)
+extent(tmin13.s.n.c)
+
+# southern tile cropped to boulder to get idea of extent
+
+test_crop <- crop(tmin13.s.s, boulder_outline_reproj3)
+extent(test_crop)
+plot(test_crop[[2]])
+plot(boulder_outline_reproj3, add  = T)
+
+l.extent.s <- c(-439000, -419000,-275500,-257500)
+l.extent.s2 <- c( -439000, -419000,-260000, -241673)
+# trim extent of raster around city buffer
+tmin13.s.s.c <- crop(tmin13.s.s, l.extent.s2)
+extent(tmin13.s.s.c)
+
+# check plot
+plot(tmin13.s.s.c[[2]])
+plot(boulder_outline_reproj3, add  = T)
+
+# try to overlap rasters with a single layer
+test_merge <- merge(tmin13.s.n.c[[2]], tmin13.s.s.c[[2]])
+plot(test_merge)
+plot(boulder_outline_reproj3, add = T)
+
+# try to merge raster stack
+stack_merge <- merge(tmin13.s.n.c, tmin13.s.s.c)
+plot(stack_merge)
+plot(stack_merge[[2]])
+plot(boulder_outline_reproj3, add = T)
+
+
+
+
+```
+
+
+```{r jan-12-days}
+# trim to first 12 days of the month
+tmin13.jan <- stack_merge[[1:12]]
+
+# convert from C to F
+r5 = (tmin13.jan*9)/5 + 32
+
+summary(r5) # range is from -5.8 to 31
+
+levelplot(r5, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=-6:32, font=4),
+            axis.line=list(col='black'),
+            width=0.75
+          ),
+          main=list(label="Daymet Derived Min Temps (F) for Boulder, CO (Jan 1-12, 2013)", cex=.8),
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette(rev(c('dark red','white','dark blue'))),                   
+          at=seq(-6, 32, len=101),
+          names.attr= c("Jan 1, 2013", "Jan 2, 2013", "Jan 3, 2013", "Jan 4, 2013", "Jan 5, 2013", "Jan 6, 2013", "Jan 7, 2013", "Jan 8, 2013", "Jan 9, 2013", "Jan 10, 2013", "Jan 11, 2013", "Jan 12, 2013")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=1))
+
+
+```
+
+```{r apr-12-days}
+# trim to first 12 days of the month
+tmin13.apr <- stack_merge[[91:102]]
+
+# convert from C to F
+r6 = (tmin13.apr*9)/5 + 32
+
+summary(r6) # range is from -3.1 to 49
+
+levelplot(r6, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=-4:49, font=4),
+            axis.line=list(col='black'),
+            width=0.75
+          ),
+          main=list(label="Daymet Derived Min Temps (F) for Boulder, CO (Apr 1-12, 2013)", cex=.8),
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette(rev(c('dark red','white','dark blue'))),                   
+          at=seq(-4, 49, len=101),
+          names.attr= c("Apr 1, 2013", "Apr 2, 2013", "Apr 3, 2013", "Apr 4, 2013", "Apr 5, 2013", "Apr 6, 2013", "Apr 7, 2013", "Apr 8, 2013", "Apr 9, 2013", "Apr 10, 2013", "Apr 11, 2013", "Apr 12, 2013")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=1))
+
+
+```
+
+```{r jul-12-days}
+# trim to first 12 days of the month
+tmin13.jul <- stack_merge[[182:193]]
+
+# convert from C to F
+r7 = (tmin13.jul*9)/5 + 32
+
+summary(r7) # range is from 41 to 66
+
+levelplot(r7, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=41:66, font=4),
+            axis.line=list(col='black'),
+            width=0.75
+          ),
+          main=list(label="Daymet Derived Min Temps (F) for Boulder, CO (Jul 1-12, 2013)", cex=.8),
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette(rev(c('dark red','white','dark blue'))),                   
+          at=seq(41, 66, len=101),
+          names.attr= c("Jul 1, 2013", "Jul 2, 2013", "Jul 3, 2013", "Jul 4, 2013", "Jul 5, 2013", "Jul 6, 2013", "Jul 7, 2013", "Jul 8, 2013", "Jul 9, 2013", "Jul 10, 2013", "Jul 11, 2013", "Jul 12, 2013")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=1))
+
+```
+
+```{r oct-12-days}
+# trim to first 12 days of the month
+tmin13.oct <- stack_merge[[274:285]]
+
+# convert from C to F
+r8 = (tmin13.oct*9)/5 + 32
+
+summary(r8) # range is from 23.9 to 50.9
+
+levelplot(r8, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=23:51, font=4),
+            axis.line=list(col='black'),
+            width=0.75
+          ),
+          main=list(label="Daymet Derived Min Temps (F) for Boulder, CO (Oct 1-12, 2013)", cex=.8),
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette(rev(c('dark red','white','dark blue'))),                   
+          at=seq(23, 51, len=101),
+          names.attr= c("Oct 1, 2013", "Oct 2, 2013", "Oct 3, 2013", "Oct 4, 2013", "Oct 5, 2013", "Oct 6, 2013", "Oct 7, 2013", "Oct 8, 2013", "Oct 9, 2013", "Oct 10, 2013", "Oct 11, 2013", "Oct 12, 2013")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=1))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+Testing with 2012
+
+```{r first-9-days-month-2012}
+# https://www.rdocumentation.org/packages/rasterVis/versions/0.45/topics/levelplot-methods
+# https://rdrr.io/cran/lattice/man/levelplot.html
+
+d1.1 = tmin2.s.crop2[[1]]
+d1.2= tmin2.s.crop2[[2]]
+d1.3 = tmin2.s.crop2[[3]]
+d1.4 = tmin2.s.crop2[[4]]
+d1.5 = tmin2.s.crop2[[5]] #max 5.5
+d1.6 = tmin2.s.crop2[[6]]
+d1.7 = tmin2.s.crop2[[7]]
+d1.8 = tmin2.s.crop2[[8]] #min -16.5
+d1.9 = tmin2.s.crop2[[9]] 
+
+
+cuttmp <- c(-17,-16, -15, -14, -13, -12, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6) # define break points for color scale
+colkey <- list(at=cuttmp, labels=list(at=cuttmp), space = "bottom") # colorkey helps put legend labels at correct break points
+
+# create plots for each of the 9 days
+p1 <- levelplot(d1.1, margin=FALSE, colorkey=FALSE, at=cuttmp, cuts=12, col.regions=colorRampPalette(c('dark red','white','dark blue')), main=list(label="Min Temp C (Jan 1, 2012)", cex=.8), scales=list(draw=FALSE)) + layer(sp.polygons(boulder_outline_reproj3, lwd = 3))
+
+p2 <- levelplot(d1.2, margin=FALSE, colorkey=FALSE, at=cuttmp, cuts=12, col.regions=colorRampPalette(c('dark red','white','dark blue')), main=list(label="Min Temp C (Jan 2, 2012)", cex=.8), scales=list(draw=FALSE)) + layer(sp.polygons(boulder_outline_reproj3, lwd = 3))
+
+p3 <- levelplot(d1.3, margin=FALSE, colorkey=FALSE, at=cuttmp, cuts=12, col.regions=colorRampPalette(c('dark red','white','dark blue')), main=list(label="Min Temp C (Jan 3, 2012)", cex=.8), scales=list(draw=FALSE)) + layer(sp.polygons(boulder_outline_reproj3, lwd = 3))
+
+p4 <- levelplot(d1.4, margin=FALSE, colorkey=FALSE, at=cuttmp, cuts=12, col.regions=colorRampPalette(c('dark red','white','dark blue')), main=list(label="Min Temp C (Jan 4, 2012)", cex=.8), scales=list(draw=FALSE)) + layer(sp.polygons(boulder_outline_reproj3, lwd = 3))
+
+p5 <- levelplot(d1.5, margin=FALSE, colorkey=FALSE, at=cuttmp, cuts=12, col.regions=colorRampPalette(c('dark red','white','dark blue')), main=list(label="Min Temp C (Jan 5, 2012)", cex=.8), scales=list(draw=FALSE)) + layer(sp.polygons(boulder_outline_reproj3, lwd = 3))
+
+p6 <- levelplot(d1.6, margin=FALSE, colorkey=FALSE, at=cuttmp, cuts=12, col.regions=colorRampPalette(c('dark red','white','dark blue')), main=list(label="Min Temp C (Jan 6, 2012)", cex=.8), scales=list(draw=FALSE)) + layer(sp.polygons(boulder_outline_reproj3, lwd = 3))
+
+p7 <- levelplot(d1.7, margin=FALSE, colorkey=FALSE, at=cuttmp, cuts=12, col.regions=colorRampPalette(c('dark red','white','dark blue')), main=list(label="Min Temp C (Jan 7, 2012)", cex=.8), scales=list(draw=FALSE)) + layer(sp.polygons(boulder_outline_reproj3, lwd = 3))
+
+p8 <- levelplot(d1.8, margin=FALSE, colorkey=FALSE, at=cuttmp, cuts=12, col.regions=colorRampPalette(c('dark red','white','dark blue')), main=list(label="Min Temp C (Jan 8, 2012)", cex=.8), scales=list(draw=FALSE)) + layer(sp.polygons(boulder_outline_reproj3, lwd = 3))
+
+p9 <- levelplot(d1.9, margin=FALSE, colorkey=colkey, at=cuttmp, cuts=12, col.regions=colorRampPalette(c('dark red','white','dark blue')), main=list(label="Min Temp C (Jan 9, 2012)", cex=.8), scales=list(draw=FALSE)) + layer(sp.polygons(boulder_outline_reproj3, lwd = 3))
+
+
+
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, p9, ncol=3)
+
+
+```
+
+
+```{r try-level-plot-as-stack}
+
+r = tmin2.s.crop2[[1:9]]
+
+levelplot(r, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=-5:5, font=4),
+            axis.line=list(col='black'),
+            width=0.75
+          ),    
+          par.settings=list(
+            strip.border=list(col='transparent'),
+            strip.background=list(col='transparent'),
+            axis.line=list(col='transparent')
+          ),
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette(c('dark red','white','dark blue')),                   
+          at=seq(-5, 5, len=101),
+          names.attr=rep('', nlayers(r))) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=3))
+
+levelplot(r, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=-20:5, font=4),
+            axis.line=list(col='black'),
+            width=0.75, 
+            main=list(label="Mean Temperature (April 1, 1980)", cex=.8)
+          ),    
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette(rev(c('dark red','white','dark blue'))),                   
+          at=seq(-20, 5, len=101),
+          names.attr= c("Jan 1, 2012", "Jan 2, 2012", "Jan 3, 2012", "Jan 4, 2012", "Jan 5, 2012", "Jan 6, 2012", "Jan 7, 2012", "Jan 8, 2012", "Jan 9, 2012")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=3))
+
+l.extent2 <- c(-439000, -419000, -279000, -239000)
+# trim extent of raster to city
+tmin2.s.crop3 <- crop(tmin2.s, l.extent2)
+
+# trim raster to first 9 dates
+r2 = tmin2.s.crop3[[1:9]]
+
+
+levelplot(r2, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=-20:5, font=4),
+            axis.line=list(col='black'),
+            width=0.75, 
+            main=list(label="Mean Temperature (April 1, 1980)", cex=.8)
+          ),    
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette(rev(c('dark red','white','dark blue'))),                   
+          at=seq(-20, 5, len=101),
+          names.attr= c("Jan 1, 2012", "Jan 2, 2012", "Jan 3, 2012", "Jan 4, 2012", "Jan 5, 2012", "Jan 6, 2012", "Jan 7, 2012", "Jan 8, 2012", "Jan 9, 2012")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=3))
+
+```
+
+Formula to convert C to F
+
+c*9/5 + 32
+
+
+```{r test-C-to-F-conversion}
+
+r3 = (r2*9)/5 + 32
+
+summary(r3) # range is from 5.9 to 41
+
+levelplot(r3, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=0:40, font=4),
+            axis.line=list(col='black'),
+            width=0.75, 
+            main=list(label="Mean Temperature (April 1, 1980)", cex=.8)
+          ),    
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette(rev(c('dark red','white','dark blue'))),                   
+          at=seq(0, 40, len=101),
+          names.attr= c("Jan 1, 2012", "Jan 2, 2012", "Jan 3, 2012", "Jan 4, 2012", "Jan 5, 2012", "Jan 6, 2012", "Jan 7, 2012", "Jan 8, 2012", "Jan 9, 2012")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=1))
+
+
+
+```
+
+
+```{r plot-first-12-days}
+l.extent2 <- c(-439000, -419000, -279000, -240000)
+# trim extent of raster around city buffer
+tmin2.s.crop3 <- crop(tmin2.s, l.extent2)
+
+# take the first 12 days only
+r4 = tmin2.s.crop3[[1:12]]
+
+# convert from C to F
+r4 = (r4*9)/5 + 32
+
+summary(r4) # range is from 5.9 to 41
+
+levelplot(r4, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=0:40, font=4),
+            axis.line=list(col='black'),
+            width=0.75
+          ),
+          main=list(label="Daymet Derived Min Temps (F) for Boulder, CO, (Jan 1-12, 2012)", cex=.8),
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette(rev(c('dark red','white','dark blue'))),                   
+          at=seq(0, 40, len=101),
+          names.attr= c("Jan 1, 2012", "Jan 2, 2012", "Jan 3, 2012", "Jan 4, 2012", "Jan 5, 2012", "Jan 6, 2012", "Jan 7, 2012", "Jan 8, 2012", "Jan 9, 2012", "Jan 10, 2012", "Jan 11, 2012", "Jan 12, 2012")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=1))
+
+
+```
+
+
+
+
+
+
+
+
+
+Testing out other plotting methods
+
+```{r test-ggploting}
+ggplot() + 
+  ggspatial::annotation_spraster(tmin2.s.crop2[[2]])
+
+ggplot(tmin2.s.crop2.b[[2]]) +  
+  geom_tile(aes(fill=factor(value),alpha=0.8))
+  geom_polygon(data=boulder_outline_reproj3, aes(x=long, y=lat, group=group), 
+               fill=NA,color="grey50", size=1)+
+  coord_equal()
+  
+  ggplot(tmin2.s.crop2.b[[2]]) +  
+  geom_tile(aes(fill=factor(value),alpha=0.8))
+  geom_polygon(data=boulder_outline_reproj3, aes(x=long, y=lat, group=group), 
+               fill=NA,color="grey50", size=1)+
+  coord_equal()
+
+
+  l1 <- levelplot(tmin2.s.crop2.b[[2]])
+```
+
+
+```{r try-plotting-levelplot}
+
+
+
+colr <- colorRampPalette(brewer.pal(11, 'RdYlBu'))
+
+r <- tmin2.s.crop2[[2]]
+
+levelplot(r, 
+          margin=FALSE,                       # suppress marginal graphics
+          colorkey=list(
+            space='bottom',                   # plot legend at bottom
+            labels=list(at=-5:5, font=4)      # legend ticks and labels 
+          ),    
+          par.settings=list(
+            axis.line=list(col='transparent') # suppress axes and legend outline
+          ),
+          scales=list(draw=FALSE),            # suppress axis labels
+          col.regions=colr,                   # colour ramp
+          at=seq(-5, 5, len=101)) +           # colour ramp breaks
+  layer(sp.polygons(boulder_outline_reproj3, lwd=3))  
+
+
+# levelplot
+cuttmp <- c(-10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1) # define break points for color scale
+colkey <- list(at=cuttmp, labels=list(at=cuttmp)) # colorkey helps put legend labels at correct break points
+p1 <- levelplot(r, margin=FALSE, colorkey=colkey, at=cuttmp, cuts=12, col.regions=rev(brewer.pal(12,"RdBu")), main=list(label="Min Temperature (Jan 2, 2013)", cex=.8), scales=list(draw=FALSE)) + layer(sp.polygons(boulder_outline_reproj3, lwd = 3))
+
+grid.arrange(p1, ncol=1)
+
+
+```
+
+```{r ggplot-works}
+# https://stackoverflow.com/questions/33227182/how-to-set-use-ggplot2-to-map-a-raster
+
+# install.packages("ggthemes")
+library(ggthemes) # theme_map()
+# install.packages("viridis")
+library(viridis)  # better colors for everyone
+library(scales)
+
+test_spdf <- as(r, "SpatialPixelsDataFrame")
+test_df <- as.data.frame(test_spdf)
+colnames(test_df) <- c("value", "x", "y")
+
+
+ggplot() +  
+  geom_tile(data=test_df, aes(x=x, y=y, fill=value), alpha=0.8) + 
+  geom_polygon(data=boulder_outline_reproj3, aes(x=long, y=lat, group=group), 
+               fill=NA, color="grey50", size=0.25) +
+  scale_fill_viridis() +
+  coord_equal() +
+  theme_map() +
+  theme(legend.position="bottom") +
+  theme(legend.key.width=unit(2, "cm"))
+
+
+```
+
+
+```{r baseplot}
+
+d1.1 = tmin2.s.crop2[[1]]
+d1.2= tmin2.s.crop2[[2]]
+d1.3 = tmin2.s.crop2[[3]]
+d1.4 = tmin2.s.crop2[[4]]
+d1.5 = tmin2.s.crop2[[5]] #max 5.5
+d1.6 = tmin2.s.crop2[[6]]
+d1.7 = tmin2.s.crop2[[7]]
+d1.8 = tmin2.s.crop2[[8]] #min -16.5
+d1.9 = tmin2.s.crop2[[9]] 
+
+
+par(mfrow = c(3,3))
+
+plot(d1.1, col = rev(c('dark red','white','dark blue')))
+plot(boulder_outline_reproj3, add = T)
+
+
+
+
+
+```
+
+

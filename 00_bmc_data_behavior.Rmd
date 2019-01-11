@@ -1,0 +1,259 @@
+---
+title: "00_bmc_data_behavior"
+author: "Deidre Jaeger"
+date: "11/6/2018"
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, echo=FALSE)
+
+```
+
+
+```{r load-libaries}
+library(rgdal) # needed to read in boulder shapefile
+library(daymetr)  # need for API data 
+library(raster) # needed for cdf conversion
+
+#install.packages("rgeos")
+library(rgeos)
+#install.packages("rgdal")
+library(ggplot2)
+
+
+# turn off factors
+options(stringsAsFactors = FALSE)
+```
+
+```{r load-boulder-city-outline}
+boulder_outline <- readOGR("data/BoulderCityLimits/BoulderCityLimits.shp")
+plot(boulder_outline)
+extent(boulder_outline)
+crs(boulder_outline)
+```
+
+```{r download-Boulder_daily-2017}
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+roi <- c(40.117514, -105.311210, 39.967069, -105.157156)
+roi2 <- c(40.117514, -105.311210, 39.965, -105.157156)
+# Define the variables for data extraction
+start_year <- 2016
+end_year <- 2017
+climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+data_path <- "data/daymet/boulder-roi-40.117514-105.311210"
+
+# use daymet API to download the data in the region of interest
+download_daymet_ncss(location = roi2,
+                      start = start_year,
+                      end = end_year,
+                      param = climate_var,
+                      path = data_path)
+
+# convert from a cdf file to a raster stack
+b_2016_st = raster::stack(paste0(data_path,"/tmin_daily_2016_ncss.nc"))
+b_2017_st = raster::stack(paste0(data_path,"/tmin_daily_2017_ncss.nc"))
+
+# create a brick from a stack for the data sets
+b_2016_br <- raster::brick(b_2016_st)
+b_2017_br <- raster::brick(b_2017_st)
+
+```
+
+```{r load-browser-downloaded-data}
+
+# Convert dweb downloaded 2016 tmin subset to a stack
+tile_tmin16_st <- raster::stack("data/daymet/V3/CF_tarred/tars_2016/11738_2016/tmin.nc")
+# Convert to a brick
+tile_tmin16_br <- raster::brick(tile_tmin16_st)
+
+# Convert dweb downloaded 2016 subset tile to a stack
+tile_tmin17_st <- raster::stack("data/daymet/V3/CF_tarred/tars_2017/11738_2017/tmin.nc")
+# Convert to a brick
+tile_tmin17_br <- raster::brick(tile_tmin17_st)
+
+```
+
+```{r compare-crs-extents}
+crs(boulder_outline)
+crs(b_2016_br)
+crs(tile_tmin16_br)
+
+extent(boulder_outline)
+extent(b_2016_br)
+extent(tile_tmin16_br)
+```
+This effort below has not been fruitful in trying to plot the raster and the city of boulder shapefile together in GGPLOT or baseplot due to differencs in coordinate references systems and then different extents after reprojecting
+
+
+```{r reproject-to-latlong}
+
+# convert to lat long
+b_2016_br_latlong <- projectRaster(b_2016_br, crs="+proj=longlat +datum=WGS84")
+extent(b_2016_br_latlong)
+crs(b_2016_br_latlong)
+
+# reproject city of boulder to the raster
+boulder_outline_reproj_latlong <- spTransform(boulder_outline,
+                                crs(b_2016_br_latlong))
+extent(boulder_outline_reproj_latlong)
+crs(boulder_outline_reproj_latlong)
+
+# convert from lcc crs to lat long crs with the EPSG spatial reference
+b_2016_br_latlong2 <- projectRaster(b_2016_br, crs="+init=epsg:4326")
+extent(b_2016_br_latlong2)
+
+
+
+```
+
+```{r see-if-tiles-plot}
+extent(tile_tmin16_br)
+crs(tile_tmin16_br)
+
+# convert to lat long
+tile_tmin16_br_latlong <- projectRaster(tile_tmin16_br, crs="+proj=longlat +datum=WGS84")
+extent(tile_tmin16_br_latlong)
+crs(b_2016_br_latlong)
+
+plot(tile_tmin16_br_latlong[[1]], ext= extent(boulder_outline_reproj_latlong))
+plot(boulder_outline_reproj_latlong, add = T)
+
+
+```
+
+
+```{r try-querying-larger_roi}
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+roi3 <- c(41.0, -106.0, 38.0, -104.0)
+# Define the variables for data extraction
+start_year <- 2017
+end_year <- 2017
+climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+data_path <- "data/daymet/boulder-roi-41.0-106"
+
+# use daymet API to download the data in the region of interest
+download_daymet_ncss(location = roi3,
+                      start = start_year,
+                      end = end_year,
+                      param = climate_var,
+                      path = data_path)
+
+# convert from a cdf file to a raster stack
+test_2017_st = raster::stack(paste0(data_path,"/tmin_daily_2017_ncss.nc"))
+
+# create a brick from a stack for the data sets
+test_2017_br <- raster::brick(test_2017_st)
+extent(test_2017_br)
+crs(test_2017_br)
+
+plot(test_2017_br[[1]])
+# convert to lat long
+test_2017_br_latlong <- projectRaster(test_2017_br, crs="+proj=longlat +datum=WGS84")
+extent(test_2017_br_latlong)
+crs(b_2016_br_latlong)
+
+# convert to lat long using EPSG UTM zone 13 code 32713
+test_2017_br_utm <- projectRaster(test_2017_br,crs="+init=epsg:32713")
+extent(test_2017_br_utm)
+
+
+plot(tile_tmin16_br_latlong[[1]], ext= extent(boulder_outline_reproj_latlong))
+plot(boulder_outline_reproj_latlong, add = T)
+
+
+```
+
+
+```{r ggploting}
+
+
+# convert to dataframe for ggplot
+boulder_outline_gg <- fortify(boulder_outline_reproj_latlong)
+
+#plot in ggplot
+ggplot()+
+  geom_polygon(data=boulder_outline_gg, aes(x = lat, y = long))
+
+
+# reproject boulder outline directly to lat long instead of using raster's crs
+boulder_outline_reproj_latlong2 <- spTransform(boulder_outline, CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+
+# convert to dataframe for gg plot
+boulder_outline_gg2 <- fortify(boulder_outline_reproj_latlong2)
+
+# plot in ggplot
+ggplot()+
+  geom_point(data=boulder_outline_reproj_latlong2, aes(x = lat, y = long))
+
+# try baseplot to view
+plot(b_2016_br_latlong[[32]], ext = extent(boulder_outline_reproj_latlong2), main = "Daymet maximum temperature (C) in Boulder, CO \n February 1, 2017")
+plot(boulder_outline_reproj_latlong2, add = T)
+
+plot(boulder_outline_reproj_latlong2)
+
+extent(boulder_outline_reproj_latlong2)
+extent(b_2016_br_latlong)
+
+```
+
+```{r explore-with-ggplot}
+
+# convert spatial object to a ggplot ready data frame
+boulder_outlinedf <- tidy(boulder_outline_reproj)
+
+
+ggplot() +
+  geom_polygon(data = boulder_outlinedf, aes(x = long, y = lat, group = group)) +
+  labs(title = "ggplot map of Boulder")
+
+ggplot() +
+  geom_raster()
+  
+
+```
+
+
+```{r reproject-boulder-city}
+
+# Reproject the city outline onto the raster brick's coord ref system
+boulder_outline_reproj <- spTransform(boulder_outline,
+                                crs(b_2016_br))
+# check crs
+crs(b_2016_br)
+crs(boulder_outline_reproj)
+
+#check extent
+extent(boulder_outline_reproj)
+extent(b_2016_br)
+
+
+```
+
+
+```{r change-extent-daymet-subset}
+
+# try reprojecting the API to the browser extent
+b_2016_br_transform <- spTransform(b_2016_br,
+                                crs(tile_tmin16_br))
+
+extent(b_2016_br)
+crs(b_2016_br)
+
+
+# set the extent of the tile subset to the boulder outline (this does not seem like an accurate representation of the data)
+extent(b_2016_br) <- boulder_outline
+b_2016_br <- setExtent(b_2016_br, boulder_outline, keepres=TRUE)
+extent(b_2016_br)
+extent(boulder_outline)
+
+```
+
+
+```{r check-data-sources}
+# check whether the plots from API downloaded data (from this script) and browser based downloads are producing the same data
+
+```
+
+
+

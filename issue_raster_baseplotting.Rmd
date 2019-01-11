@@ -1,0 +1,140 @@
+---
+title: "test_data_issue_plotting"
+author: "Deidre Jaeger"
+date: "11/7/2018"
+output: github_document
+---
+
+I think I am having some package dependency issues but struggling to know how to check which packages changed - or to know if I need to go back to older versions of packages.  I'm working with spatial data in ggplot, and I was working from this tutorial: https://eriqande.github.io/rep-res-eeb-2017/plotting-spatial-data-with-ggplot.html
+
+I installed devtools::install_github("paleolimbot/ggspatial") from https://paleolimbot.github.io/ggspatial/
+
+While the installation was running, I noticed a lot of things were updated in the R console messaging, such as packages "raster" "sp" "ggplot2". Then plotting with these packages, as well as with base graphics packages no longer worked the same way. 
+
+I am just trying to get my original code to work to produce the image below:
+
+```{r echo=FALSE}
+# libraries for images
+library(png)
+library(grid)
+img <- readPNG("/Users/deidrejaeger/Documents/Career/CU-Boulder/Research/BoulderMicroclimate/images/nov_2016-17_tmin_max.png")
+ grid.raster(img)
+
+```
+I was originally working with base graphics for visualization, but was attempting to figure out ggplot to display this data. 
+
+I will detail the workflow below just focusing on one of the panels:
+
+
+```{r}
+library(rgdal) # needed to read in boulder shapefile
+library(raster) # needed for cdf conversion
+library(ggplot2)
+
+# libraries for images
+library(png)
+library(grid)
+
+sessionInfo()
+```
+
+```{r}
+boulder_outline <- rgdal::readOGR("data/BoulderCityLimits/BoulderCityLimits.shp")
+plot(boulder_outline)
+extent(boulder_outline) # check extent
+crs(boulder_outline) # check coordinate reference system
+```
+
+```{r-load-raster-daymet-climate-data}
+# load raster from daymet, tile 11738 minimum temperature for 2017
+tile_tmin17_st <- raster::stack("data/daymet/V3/CF_tarred/tars_2017/11738_2017/tmin.nc")
+# convert raster stack to brick
+tile_tmin17_br <- raster::brick(tile_tmin17_st)
+
+extent(tile_tmin17_br) # tile is much larger than the City of Boulder
+crs(tile_tmin17_br) # both lambert conical cooordinate system but slightly different projection dataum than City of Boulder shapefile
+```
+
+```{r-reproject-city-Boulder}
+# Reproject the city polygons onto the raster brick's coord ref system
+boulder_outline_reproj <- spTransform(boulder_outline,
+                                crs(tile_tmin17_br))
+
+
+extent(boulder_outline_reproj) 
+crs(boulder_outline_reproj)
+```
+Before I installed the ggspatial package devtools::install_github("paleolimbot/ggspatial") I was able to plot the temperature raster within the extent of the City of Boulder. 
+```{r, eval=FALSE}
+plot(tile_tmin17_br[[305]], ext=extent(boulder_outline_reproj), 
+                                     main = "Daymet maximum temperature (C) in Boulder, CO \n November 1, 2016")
+plot(boulder_outline_reproj, add= T)
+```
+
+```{r echo=FALSE}
+img <- readPNG("/Users/deidrejaeger/Documents/Career/CU-Boulder/Research/BoulderMicroclimate/images/nov_2016-17_tmin_max.png")
+ grid.raster(img)
+
+```
+
+After installing devtools::install_github("paleolimbot/ggspatial") I noticed a lot of things were updated in the R console messaging, such as packages "raster" "sp" "ggplot2". 
+
+### BASE GRAPHICS
+
+When I tried to use the base graphics plot, nothing shows up anymore
+```{r}
+plot(tile_tmin17_br[[305]], ext=extent(boulder_outline_reproj), 
+                                     main = "Daymet maximum temperature (C) in Boulder, CO \n November 1, 2016")
+plot(boulder_outline_reproj, add= T)
+```
+
+If I just specify base graphics to view the full tile I get an error message
+```{r, eval=FALSE}
+graphics::plot(tile_tmin17_br[[32]])
+```
+> graphics::plot(tile_tmin17_br[[32]])
+Error in as.double(y) : 
+  cannot coerce type 'S4' to vector of type 'double'
+
+If I specify plotting from the raster package I notice that the resulting image looks different: it is tilted, with more jagged pixel edges than it had before.
+```{r}
+raster::plot(tile_tmin17_br[[32]])
+```
+
+If I add the city of boulder, I see that the outline no longer overlaps any part of the tile.
+```{r}
+raster::plot(tile_tmin17_br[[32]])
+plot(boulder_outline_reproj, add = T)
+```
+
+
+### GGPLOT
+When I tried to use ggplot2 to plot tile_tmin17_br[[305]], I got the following error message: 
+Error in get(Info[i, 1], envir = env) : lazy-load database '/Library/Frameworks/R.framework/Versions/3.5/Resources/library/ggplot2/R/ggplot2.rdb' is corrupt In addition: Warning message: In get(Info[i, 1], envir = env) : internal error -3 in R_decompress1
+
+I then uninstalled ggplot, and reinstalled it and the problem went away. I tried to remove.packages(ggspatial) but it still seems to be an available package. In the meantime, I am working to try and use the ggspatial package
+
+```{r}
+library(ggspatial)
+
+ggplot() +
+  layer_spatial(tile_tmin17_br[[32]])
+```
+
+```{r, eval=FALSE}
+
+ggplot() +
+    layer_spatial(boulder_outline) 
+```
+
+> ggplot() +
++     layer_spatial(boulder_outline) 
+Error in grid.Call(C_textBounds, as.graphicsAnnot(x$label), x$x, x$y,  : 
+  polygon edge not found
+
+```{r}
+ggplot() +
+  layer_spatial(boulder_outline) +
+  layer_spatial(tile_tmin17_br[[32]]) 
+```
+

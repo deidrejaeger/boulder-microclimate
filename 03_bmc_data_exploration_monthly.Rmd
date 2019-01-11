@@ -1,0 +1,462 @@
+---
+title: "03_bmc_data_exploration_monthly"
+author: "Deidre Jaeger"
+date: "1/9/2019"
+output: html_document
+---
+
+Exploration plan : Start with tmin 2013
+
+Define a study radius around the city
+convert to F
+
+1) maps of first 9 days of Jan, Apr, Jul, Oct (DONE)
+
+2) calc min temp maps for each month for a cell 
+
+3) calculate the coefficient of variation (sd/mean * 100) for each month and year for a cell
+
+4) Look at yearly averages of tmin for a cell from 1980 to 2017 (tmin and tmax)
+
+Questions:
+Is there a spatial pattern to temp variability? 
+Is there a detectable urban heat island effect? 
+How does this compare to the overall climate change signal? (using landsat?)
+
+Analysis plan
+1) define an area in the city and outside, compare the mean yearly temps for a section inside the city to a section outside the city see if significantly different for a 30 year comparison- what is the difference?
+?how many weather stations are in boulder and where are they? 
+
+```{r install-packages}
+library(ncdf4)
+library(raster)
+library(proj4)
+library(rgdal) # needed to read in boulder shapefile
+library(daymetr)
+library(ggplot2)
+library(broom)
+library(tidyverse)
+library(ggspatial)
+library(rasterVis) # for levelplot
+```
+
+```{r load-boulder-city-outline}
+# load boulder shapefile
+boulder_outline <- readOGR("data/BoulderCityLimits/BoulderCityLimits.shp")
+# set path to data on external harddrive
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet"
+# load a raster with monthly aggregations
+tmin.mon.s <- raster::stack(paste0(data_path2,"/tmin_monavg_2012_ncss.nc"))
+# reproject coordinate reference system
+tmin.mon.s_repr <- projectRaster(tmin.mon.s, crs="+proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs")
+# Reproject the city polygons onto the raster brick's coord ref system
+boulder_outline_reproj3 <- spTransform(boulder_outline,
+                                crs(proj4string(tmin.mon.s_repr)))
+```
+
+
+
+```{r download-2014-daily-data}
+
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+roi <- c(40.09, -105.32, 39.95, -105.17)
+# Define the variables for data extraction
+start_year <- 2014
+end_year <- 2014
+climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet" # i think the file is too large for my computer, switch to an external harddrive for raw data
+
+# use daymet API to download the data in the region of interest
+ download_daymet_tiles(location = roi,
+                      start = start_year,
+                      end = end_year,
+                      tile = NULL,
+                      param = climate_var,
+                      path = data_path2,
+                      silent = F)
+ 
+tmin14.s.n <- raster::stack(paste0(data_path2,"/tmin_2014_11738.nc"))
+tmin14.s.s <- raster::stack(paste0(data_path2,"/tmin_2014_11558.nc"))
+
+plot(tmin14.s.n)
+plot(tmin14.s.s)
+print(tmin14.s.n)
+print(tmin14.s.s)
+
+# try plotting one tile
+plot(tmin14.s.n[[1]])
+plot(boulder_outline_reproj3, add = TRUE)
+plot(tmin14.s.s[[1]])
+plot(boulder_outline_reproj3, add = TRUE)
+
+
+# set extents, could also use extent(xmin, xmax, ymin, ymax)
+l.extent.n <- c(-439000, -419000, -279000, -240000)
+# l.extent.s <- c(-439000, -419000,-275500,-257500)
+l.extent.s2 <- c( -439000, -419000,-260000, -241673)
+
+# trim northern extent of raster around city buffer
+tmin14.s.n.c <- crop(tmin14.s.n, l.extent.n)
+extent(tmin14.s.n.c)
+
+# trim southern extent of raster around city buffer
+tmin14.s.s.c <- crop(tmin14.s.s, l.extent.s2)
+extent(tmin14.s.s.c)
+
+
+# merge raster stack for 2014 daily min temp values
+stack_merge <- merge(tmin14.s.n.c, tmin14.s.s.c)
+
+```
+
+The R RasterStack and RasterBrick object types can both store multiple bands. However, how they store each band is different. The bands in a RasterStack are stored as links to raster data that is located somewhere on our computer. A RasterBrick contains all of the objects stored within the actual R object. In most cases, we can work with a RasterBrick in the same way we might work with a RasterStack. However a RasterBrick is often more efficient and faster to process - which is important when working with larger files.
+
+
+We can also use the ggplot functions to plot the data in any layer of our RasterStack object. Remember, we need to convert to a data frame first.
+
+RGB_stack_HARV_df  <- as.data.frame(RGB_stack_HARV, xy = TRUE)
+
+```{r calculations}
+# https://www.rdocumentation.org/packages/raster/versions/2.8-4/topics/calc
+
+# use overlay() for single raster math, use calc() for raster stacks 
+# If x is a RasterStack or RasterBrick, fun should operate on a vector of values (one vector for each cell). calc returns a RasterLayer if fun returns a single value (e.g. sum) and it returns a RasterBrick if fun returns more than one number, e.g., fun=quantile
+
+# calculate the mean min temp for each pixel in a given month
+jan_mean <- mean(stack_merge[[1:31]])
+feb_mean <- mean(stack_merge[[32:59]])
+mar_mean <- mean(stack_merge[[60:90]])
+apr_mean <- mean(stack_merge[[91:120]])
+may_mean <- mean(stack_merge[[121:151]])
+jun_mean <- mean(stack_merge[[152:181]])
+jul_mean <- mean(stack_merge[[182:212]])
+aug_mean <- mean(stack_merge[[213:243]])
+sep_mean <- mean(stack_merge[[244:273]])
+oct_mean <- mean(stack_merge[[274:304]])
+nov_mean <- mean(stack_merge[[305:334]])
+dec_mean <- mean(stack_merge[[335:365]])
+
+# stack the monthly rasters
+month2014_ave <- raster::stack(jan_mean, feb_mean, mar_mean, apr_mean, may_mean, jun_mean, jul_mean, aug_mean, sep_mean, oct_mean, nov_mean, dec_mean)
+
+plot(month2014_ave)
+
+# convert to from C to F
+month2014_ave = (month2014_ave*9)/5 + 32
+
+# check the range
+summary(month2014_ave) # min is 14.5, max is 60.3
+
+levelplot(month2014_ave, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=14:61, font=4),
+            axis.line=list(col='black'),
+            width=0.75
+          ),
+          main=list(label="Daymet Derived mean Min Temps (F) for Boulder, CO (2014)", cex=.8),
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette(rev(c('dark red','white','dark blue'))),                   
+          at=seq(14, 61, len=101),
+          names.attr= c("Jan, 2014", "Feb, 2014", "Mar, 2014", "Apr, 2014", "May, 2014", "Jun, 2014", "Jul, 2014", "Aug, 2014", "Sep, 2014", "Oct, 2014", "Nov, 2014", "Dec, 2014")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=1))
+
+
+
+```
+
+
+```{r calc-st-deviation}
+# https://www.rdocumentation.org/packages/raster/versions/2.8-4/topics/calc
+
+# use overlay() for single raster math, use calc() for raster stacks 
+# If x is a RasterStack or RasterBrick, fun should operate on a vector of values (one vector for each cell). calc returns a RasterLayer if fun returns a single value (e.g. sum) and it returns a RasterBrick if fun returns more than one number, e.g., fun=quantile
+
+# calculate the calc min temp for each pixel in a given month
+jan_sd <- calc(stack_merge[[1:31]], sd)
+feb_sd <- calc(stack_merge[[32:59]], sd)
+mar_sd <- calc(stack_merge[[60:90]], sd)
+apr_sd <- calc(stack_merge[[91:120]], sd)
+may_sd <- calc(stack_merge[[121:151]], sd)
+jun_sd <- calc(stack_merge[[152:181]], sd)
+jul_sd <- calc(stack_merge[[182:212]], sd)
+aug_sd <- calc(stack_merge[[213:243]], sd)
+sep_sd <- calc(stack_merge[[244:273]], sd)
+oct_sd <- calc(stack_merge[[274:304]], sd)
+nov_sd <- calc(stack_merge[[305:334]], sd)
+dec_sd <- calc(stack_merge[[335:365]], sd)
+
+# stack the monthly rasters
+month2014_sd <- raster::stack(jan_sd, feb_sd, mar_sd, apr_sd, may_sd, jun_sd, jul_sd, aug_sd, sep_sd, oct_sd, nov_sd, dec_sd)
+
+plot(month2014_sd)
+
+# check the range
+summary(month2014_sd) # min is 1.5, max is 8.3
+
+levelplot(month2014_sd, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=0:10, font=4),
+            axis.line=list(col='black'),
+            width=0.75
+          ),
+          main=list(label="Stand. dev. of Min Temps (F) for Boulder, CO (2014)", cex=.8),
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette((c('dark grey','orange'))),                   
+          at=seq(0, 10, len=101),
+          names.attr= c("Jan, 2014", "Feb, 2014", "Mar, 2014", "Apr, 2014", "May, 2014", "Jun, 2014", "Jul, 2014", "Aug, 2014", "Sep, 2014", "Oct, 2014", "Nov, 2014", "Dec, 2014")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=1))
+
+```
+
+
+Thursday Jan 10 next steps
+
+- check the full year min temp for 2014
+
+- think about freezing value thresholds...
+- think about other calculations to be done with extremes/ largest differences (calc is smothering?) should I instead take the lowest min temp for a pixel for a month?
+
+- check if 2018 data is available
+
+- see if weather stations are given somewhere
+
+- apply to full span of years!
+
+```{r coeff-var-function}
+# look at coefficient of variation
+# coefficient of variation (sd/calc)
+coeff.var <- function(r.stack) {
+  # function taking a raster stack, computing the coefficient of variation for each pixel and returning a single raster showing the coefficient of variation.
+  rstack.cv <- (calc(r.stack, sd)/calc(r.stack, mean))
+  
+  return(rstack.cv)
+}
+
+# if the the coeff of variation is smaller, then
+# the st deviation is very low, then data is close to the calc
+
+# if the coeff of variation is larger, then
+# the st deviation is high, and the data has a larger spread from the calc
+
+
+
+
+```
+
+```{r calc-coeff-variation of calc temps}
+# calculate the coefficient of variation min temp for each pixel in a given month
+jan_coeff.var <- coeff.var(stack_merge[[1:31]])
+feb_coeff.var <- coeff.var(stack_merge[[32:59]])
+mar_coeff.var <- coeff.var(stack_merge[[60:90]])
+apr_coeff.var <- coeff.var(stack_merge[[91:120]])
+may_coeff.var <- coeff.var(stack_merge[[121:151]])
+jun_coeff.var <- coeff.var(stack_merge[[152:181]])
+jul_coeff.var <- coeff.var(stack_merge[[182:212]])
+aug_coeff.var <- coeff.var(stack_merge[[213:243]])
+sep_coeff.var <- coeff.var(stack_merge[[244:273]])
+oct_coeff.var <- coeff.var(stack_merge[[274:304]])
+nov_coeff.var <- coeff.var(stack_merge[[305:334]])
+dec_coeff.var <- coeff.var(stack_merge[[335:365]])
+
+# stack the monthly rasters
+month2014_coeff.var <- raster::stack(jan_coeff.var, feb_coeff.var, mar_coeff.var, apr_coeff.var, may_coeff.var, jun_coeff.var, jul_coeff.var, aug_coeff.var, sep_coeff.var, oct_coeff.var, nov_coeff.var, dec_coeff.var)
+
+plot(month2014_coeff.var)
+
+# check the range
+summary(month2014_coeff.var) # min value -130.8, max is inf or 2.07
+
+levelplot(month2014_coeff.var, 
+          margin=FALSE,                       
+          colorkey=list(
+            space='bottom',                   
+            labels=list(at=-131:3, font=4),
+            axis.line=list(col='black'),
+            width=0.75
+          ),
+          main=list(label="Coeff of Variation of Daily Min Temps (F) for Boulder, CO (2014)", cex=.8),
+          scales=list(draw=FALSE),            
+          col.regions=colorRampPalette((c('dark grey','orange'))),                   
+          at=seq(-131, 3, len=101),
+          names.attr= c("Jan, 2014", "Feb, 2014", "Mar, 2014", "Apr, 2014", "May, 2014", "Jun, 2014", "Jul, 2014", "Aug, 2014", "Sep, 2014", "Oct, 2014", "Nov, 2014", "Dec, 2014")) +           
+  layer(sp.polygons(boulder_outline_reproj3, lwd=1))
+
+```
+
+
+
+
+
+
+#### Extras
+
+??? Cannot get the monthly rasters extents to match the city of boulder polygons, even though they have the same coordinate system
+```{r download-monthly-2014-data}
+
+## ****** needed to connect to cisco to get the proper monthly version????
+
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+roi <- c(40.097, -105.304, 40.002, -105.175)
+roi2 <- c(40.131, -105.446, 39.953, -105.143)
+# Define the variables for data extraction
+start_year <- 2014
+end_year <- 2014
+climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet/test" # i think the file is too large for my computer, switch to an external harddrive for raw data
+
+# https://cran.r-project.org/web/packages/daymetr/daymetr.pdf
+# https://cran.r-project.org/web/packages/daymetr/vignettes/daymetr-vignette.html
+# use daymet API to download the data in the region of interest
+download_daymet_ncss(location = roi2,
+                      start = start_year,
+                      end = end_year,
+                      frequency = "monthly",
+                      param = climate_var,
+                      path = data_path2,
+                      silent = F)
+
+# create a stack of the 12 months of average min temps
+tmin14.s <- raster::stack(paste0(data_path2,"/tmin_monavg_2014_ncss.nc"))
+tmin14.s2 <- raster::stack(paste0(data_path2,"/tmin_monavg_2014_ncss.nc"))
+crs(tmin14.s2)
+extent(tmin14.s2)
+boulder_outline_reproj4 <- spTransform(boulder_outline,
+                                crs(proj4string(tmin14.s2)))
+crs(boulder_outline_reproj4)
+extent(boulder_outline_reproj4)
+plot(tmin14.s2[[2]])
+plot(boulder_outline_reproj4, add = T)
+
+# try reprojecting to a meters crs
+tmin.mon.s_repr2 <- projectRaster(tmin14.s2, crs="+proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs")
+
+boulder_outline_reproj4 <- spTransform(boulder_outline_reproj3,
+                                crs(proj4string(tmin.mon.s_repr2 )))
+
+plot(tmin.mon.s_repr2[[2]])
+plot(boulder_outline_reproj4, add = TRUE)
+extent(boulder_outline_reproj4)
+
+nlayers(tmin14.s)
+
+crs(tmin14.s)
+plot(tmin14.s)
+
+# Reproject the city polygons onto the raster brick's coord ref system
+boulder_outline_reproj4 <- spTransform(boulder_outline,
+                                crs(proj4string(tmin14.s)))
+crs(boulder_outline_reproj4)
+extent(boulder_outline_reproj4)
+
+# try plotting
+plot(tmin14.s[[2]])
+plot(boulder_outline_reproj4 , add = T)
+
+# check extents
+extent(tmin14.s)
+extent(boulder_outline_reproj4)
+
+# try reprojecting to a meters crs
+tmin.mon.s_repr <- projectRaster(tmin14.s, crs="+proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs")
+
+crs(tmin.mon.s_repr)
+extent(tmin.mon.s_repr)
+
+crs(boulder_outline_reproj3)
+extent(boulder_outline_reproj3)
+
+tmin14.s_repr <- projectRaster(tmin14.s, crs=crs(proj4string(boulder_outline_reproj3)))
+crs(tmin14.s_repr)
+extent(tmin14.s_repr)
+
+plot(tmin14.s_repr[[1]])
+plot(boulder_outline_reproj3, add = TRUE)
+
+```
+
+
+# this needs a lot of work to alter legends and scales, but should work once 12 month plots are made
+```{r try-ggplot-12-month}
+library(reshape)
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet/test" # i think the file is too large for my computer,
+tmin14.s <- raster::stack(paste0(data_path2,"/tmin_monavg_2014_ncss.nc"))
+
+stack_merge_df <- as.data.frame(tmin14.s, xy = TRUE) %>%
+    melt(id.vars = c('x','y'))
+ggplot() +
+  geom_raster(data = stack_merge_df, aes(x = x, y = y, fill = value)) +
+  facet_wrap(~ variable)
+
+# try histogram
+ggplot(stack_merge_df) +
+  geom_histogram(aes(value)) +
+    facet_wrap(~variable)
+str(stack_merge_df)
+
+# would want to add a column of dates in date format, could do a year and julien day columns then convert julien days to date class
+```
+
+
+```{r try-ggplot-with-wrong-crs}
+# differing coordinates systems can be converted on the fly in ggplot for vector data according to : https://datacarpentry.org/r-raster-vector-geospatial/aio.html but it seems to not apply for raster/vector mix
+
+test1 <- tmin14.s_repr[[1]]
+
+test_spdf <- as(test1, "SpatialPixelsDataFrame")
+test_df <- as.data.frame(test_spdf)
+colnames(test_df) <- c("value", "x", "y")
+
+
+ggplot() +  
+  geom_tile(data=test_df, aes(x=x, y=y, fill=value), alpha=0.8) + 
+  geom_sf(data=boulder_outline_reproj3, aes(shape = "shape"), 
+               fill=NA, color="grey50", size=0.25) +
+ scale_shape_manual(name = "", labels = "Fisher Tower", values = c("shape" = 19)) +
+    ggtitle("Fisher Tower location") + 
+    theme(legend.background = element_rect(color = NA)) + 
+    coord_sf()
+
+```
+
+
+```{r open-net-csf}
+# try another way to open netcdf file
+ncfname <- paste0(data_path2,"/tmin_monavg_2013_ncss.nc")
+ncin <- nc_open(ncfname, write=F)
+print(ncin)
+# extract location and time
+x <- ncvar_get(ncin, "x")
+y <- ncvar_get(ncin,"y")
+time <- ncvar_get(ncin,"time")
+nc_close(ncin)
+
+# extract climate variables
+ncin2 <- nc_open(ncfname, write=T)
+var.array <- ncvar_get(ncin2,"tmin") # get the climate variable values
+nc_close(ncin2)
+vec.tmin <- as.vector(var.array) # convert from array to vector
+
+
+# create matrix
+ncells <- dim(x)*dim(y)
+nyearday <- dim(time)
+tmin.mat2 <- matrix(vec.tmin, nrow=ncells, ncol=nyearday, byrow=F)
+
+# expand grid
+grid <- expand.grid(xlon=x, ylat=y)
+xyz.tmin <- cbind(grid, tmin.mat2[[2]])
+head(xyz.tmin)
+
+# convert to raster
+pj <- "+proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs"
+rast.tmin2 <- rasterFromXYZ(xyz.tmin, crs=pj)
+
+
+```
+
+For cropping raster sections with vector data
+https://datacarpentry.org/r-raster-vector-geospatial/11-vector-raster-integration/
