@@ -1,0 +1,55 @@
+---
+title: "06_bmc_download_all_tiles"
+author: "Deidre Jaeger"
+date: "1/15/2019"
+output: html_document
+---
+
+
+```{r define-variables}
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+roi <- c(40.09, -105.32, 39.95, -105.17)
+start_year <- 1980
+end_year <- 1990
+climate_var <- c("tmin", "tmax") # c("tmin", "tmax") or "ALL"
+data_path <- "/Volumes/UrbanClimatePheno/daymet/tmin_tmax_1980_2017" # on external HD
+
+```
+
+
+```{r start-download}
+
+# use daymet API to download the data in the region of interest
+download_daymet_tiles(location = roi,
+                      start = start_year,
+                      end = end_year,
+                      tile = NULL,
+                      param = climate_var,
+                      path = data_path,
+                      silent = F)
+
+```
+
+
+```{r define-variables}
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+roi <- c(40.09, -105.32, 39.95, -105.17)
+start_year <- 1990
+end_year <- 2017
+climate_var <- c("tmin", "tmax") # c("tmin", "tmax") or "ALL"
+data_path <- "/Volumes/UrbanClimatePheno/daymet/tmin_tmax_1980_2017" # on external HD
+
+```
+```{r start-download}
+
+# use daymet API to download the data in the region of interest
+download_daymet_tiles(location = roi,
+                      start = start_year,
+                      end = end_year,
+                      tile = NULL,
+                      param = climate_var,
+                      path = data_path,
+                      silent = F)
+
+```
+

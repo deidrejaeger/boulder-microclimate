@@ -318,3 +318,47 @@ ggplot() +
   coord_sf()
 
 
+```{r test-2018}
+# create a region of interest, example is: c(top left lat, top left long, bottom right lat, bottom right long)
+roi <- c(40.097, -105.304, 40.002, -105.175)
+# Define the variables for data extraction
+start_year <- 2018
+end_year <- 2018
+climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+data_path <- "data/daymet/boulder-roi-40.097-105.304"
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet" # i think the file is too large for my computer, switch to an external harddrive for raw data
+
+# use daymet API to download the data in the region of interest
+download_daymet_ncss(location = roi,
+                      start = start_year,
+                      end = end_year,
+                      frequency = "daily",
+                      param = climate_var,
+                      path = data_path2,
+                      silent = F)
+# open raster
+tmin.2018 <- raster::stack(paste0(data_path2,"/test/tmin_monavg_2018_ncss.nc"))
+
+# try reprojecting to a meters crs
+tmin.mon.s_repr <- projectRaster(tmin.mon.s, crs="+proj=lcc +lat_1=25.00 +lat_2=60.00 +lat_0=42.5 +lon_0=-100.00 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs")
+
+# Define the variables for data extraction
+start_year <- 2018
+end_year <- 2018
+climate_var <- "tmin" # c("tmin", "tmax") or "ALL"
+data_path2 <- "/Volumes/UrbanClimatePheno/daymet" # i think the file is too large for my computer, switch to an external harddrive for raw data
+
+# use daymet API to download the data in the region of interest
+ download_daymet_tiles(location = roi,
+                      start = start_year,
+                      end = end_year,
+                      tile = NULL,
+                      param = climate_var,
+                      path = data_path2,
+                      silent = F)
+ 
+tmin18.s.n <- raster::stack(paste0(data_path2,"/tmin_2018_11738.nc"))
+plot(tmin18.s.n)
+
+```
+

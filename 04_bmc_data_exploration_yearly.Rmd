@@ -6,13 +6,11 @@ output: html_document
 ---
 TO dos
 
-- check if 2018 data is available
-
-- see if weather stations are given somewhere
-
 - apply to full span of years!
 
 - get a DEM for boulder area to compare (or underlay on the temp map- see NEON tutorial)
+
+USC00050848	BOULDER	39.9919	-105.267
 
 Questions:
 Is there a spatial pattern to temp variability? 

@@ -7,16 +7,9 @@ output: html_document
 
 Exploration plan : Start with tmin 2013
 
-Define a study radius around the city
-convert to F
-
-1) maps of first 9 days of Jan, Apr, Jul, Oct (DONE)
-
 2) calc min temp maps for each month for a cell 
 
 3) calculate the coefficient of variation (sd/mean * 100) for each month and year for a cell
-
-4) Look at yearly averages of tmin for a cell from 1980 to 2017 (tmin and tmax)
 
 Questions:
 Is there a spatial pattern to temp variability? 
@@ -26,6 +19,9 @@ How does this compare to the overall climate change signal? (using landsat?)
 Analysis plan
 1) define an area in the city and outside, compare the mean yearly temps for a section inside the city to a section outside the city see if significantly different for a 30 year comparison- what is the difference?
 ?how many weather stations are in boulder and where are they? 
+
+Station location in Boulder
+USC00050848	BOULDER	39.9919	-105.267
 
 ```{r install-packages}
 library(ncdf4)
